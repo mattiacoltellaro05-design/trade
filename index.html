@@ -313,43 +313,117 @@ function creaDatiForex() {
         }
         
         // GRAFICO
-        function drawChart() {
-            const canvas = document.getElementById('chart');
-            const ctx = canvas.getContext('2d');
-            canvas.width = canvas.offsetWidth;
-            canvas.height = 500;
-            
-            ctx.fillStyle = '#000';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            
-            const data = prices.slice(-50);
-            const maxP = Math.max(...data) * 1.02;
-            const minP = Math.min(...data) * 0.98;
-            const range = maxP - minP;
-            
+        // 🕯️ CANDELE REALI + TP/SL AUTOMATICI
+function drawChart() {
+    const canvas = document.getElementById('chart');
+    const ctx = canvas.getContext('2d');
+    canvas.width = canvas.offsetWidth;
+    canvas.height = 500;
+    
+    // Pulisci
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    if (prices.length < 10) return;
+    
+    const dati = prices.slice(-40); // 40 candele visibili
+    const maxP = Math.max(...dati) * 1.02;
+    const minP = Math.min(...dati) * 0.98;
+    const rangeP = maxP - minP;
+    const margineX = 30;
+    
+    // CALCOLA TP/SL AUTOMATICI
+    const ultimoPrezzo = prices[prices.length-1];
+    const signal = generateSignal();
+    let tpLivello, slLivello;
+    
+    if (signal.type === 'BUY') {
+        tpLivello = ultimoPrezzo + (rangeP * 0.6);  // TP +60% range
+        slLivello = ultimoPrezzo - (rangeP * 0.3);  // SL -30% range
+    } else if (signal.type === 'SELL') {
+        tpLivello = ultimoPrezzo - (rangeP * 0.6);
+        slLivello = ultimoPrezzo + (rangeP * 0.3);
+    } else {
+        tpLivello = ultimoPrezzo + (rangeP * 0.4);
+        slLivello = ultimoPrezzo - (rangeP * 0.4);
+    }
+    
+    // 🕯️ DISEGNA CANDELE REALI
+    dati.forEach((prezzo, i) => {
+        const x = (i / (dati.length-1)) * (canvas.width - margineX*2) + margineX;
+        const y = canvas.height - 80 - ((prezzo - minP) / rangeP) * 380;
+        
+        // Corpo candela (verde/rosso)
+        const corpoAlto = canvas.height - 80 - ((ultimoPrezzo - minP) / rangeP) * 380;
+        const corpoBasso = canvas.height - 80 - ((ultimoPrezzo - minP) / rangeP) * 380;
+        const altezzaCorpo = Math.abs(corpoAlto - corpoBasso) * 0.6;
+        
+        if (prezzo > prices[i-1] || i === 0) {
+            // Candela verde (rialzista)
+            ctx.fillStyle = '#00ff88';
+            ctx.fillRect(x-3, y-altezzaCorpo/2, 6, altezzaCorpo);
             ctx.strokeStyle = '#00ff88';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            data.forEach((price, i) => {
-                const x = (i / (data.length-1)) * (canvas.width - 40) + 20;
-                const y = canvas.height - 50 - ((price - minP) / range) * 400;
-                if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-            });
-            ctx.stroke();
-            
-            if (indicators.sma20?.length > 10) {
-                ctx.strokeStyle = '#ffaa00';
-                ctx.lineWidth = 1;
-                ctx.beginPath();
-                const smaData = indicators.sma20.slice(-50);
-                smaData.forEach((sma, i) => {
-                    const x = (i / 49) * (canvas.width - 40) + 20;
-                    const y = canvas.height - 50 - ((sma - minP) / range) * 400;
-                    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-                });
-                ctx.stroke();
-            }
+        } else {
+            // Candela rossa (ribassista)
+            ctx.fillStyle = '#ff4444';
+            ctx.fillRect(x-3, y-altezzaCorpo/2, 6, altezzaCorpo);
+            ctx.strokeStyle = '#ff4444';
         }
+        
+        // Stoppini (shadows)
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x, y-10);
+        ctx.lineTo(x, y+10);
+        ctx.stroke();
+    });
+    
+    // 📈 SMA20 GIALLO
+    if (indicators.sma20?.length > 10) {
+        ctx.strokeStyle = '#ffaa00';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        indicators.sma20.slice(-40).forEach((sma, i) => {
+            const x = (i / 39) * (canvas.width - margineX*2) + margineX;
+            const y = canvas.height - 80 - ((sma - minP) / rangeP) * 380;
+            if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+    }
+    
+    // 🎯 LINEA TP (verde)
+    ctx.strokeStyle = '#00ff00';
+    ctx.lineWidth = 3;
+    ctx.setLineDash([5, 5]);
+    ctx.beginPath();
+    ctx.moveTo(margineX, canvas.height - 80 - ((tpLivello - minP) / rangeP) * 380);
+    ctx.lineTo(canvas.width - margineX, canvas.height - 80 - ((tpLivello - minP) / rangeP) * 380);
+    ctx.stroke();
+    
+    // 🛑 LINEA SL (rosso)
+    ctx.strokeStyle = '#ff0000';
+    ctx.lineWidth = 3;
+    ctx.setLineDash([5, 5]);
+    ctx.beginPath();
+    ctx.moveTo(margineX, canvas.height - 80 - ((slLivello - minP) / rangeP) * 380);
+    ctx.lineTo(canvas.width - margineX, canvas.height - 80 - ((slLivello - minP) / rangeP) * 380);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    
+    // TESTO TP/SL
+    ctx.fillStyle = '#00ff00';
+    ctx.font = 'bold 14px Arial';
+    ctx.fillText(`TP: ${tpLivello.toFixed(5)}`, canvas.width - 120, 40);
+    
+    ctx.fillStyle = '#ff0000';
+    ctx.fillText(`SL: ${slLivello.toFixed(5)}`, canvas.width - 120, 65);
+    
+    // Prezzo attuale
+    ctx.fillStyle = signal.type === 'BUY' ? '#00ff88' : signal.type === 'SELL' ? '#ff4444' : '#ffaa00';
+    ctx.font = 'bold 20px Arial';
+    ctx.fillText(`${ultimoPrezzo.toFixed(5)}`, 20, 35);
+}
+
         
         function updateUI() {
             const signal = generateSignal();
@@ -359,12 +433,30 @@ function creaDatiForex() {
             document.getElementById('signal').className = `signal-card ${signal.type.toLowerCase()} ${signal.strength > 6 ? 'strong' : ''}`;
             
             document.getElementById('metrics').innerHTML = `
-                <div class="metric"><div class="metric-value">${price.toFixed(5)}</div><div class="metric-label">Prezzo Live</div></div>
-                <div class="metric"><div class="metric-value">${indicators.sma20?.[indicators.sma20.length-1]?.toFixed(5) || '-'}</div><div class="metric-label">SMA 20</div></div>
-                <div class="metric"><div class="metric-value">${indicators.rsi?.toFixed(1) || '-'}</div><div class="metric-label">RSI</div></div>
-                <div class="metric"><div class="metric-value">${(indicators.macd || 0).toFixed(6)}</div><div class="metric-label">MACD</div></div>
-                <div class="metric"><div class="metric-value">${(indicators.stoch || 0).toFixed(1)}%</div><div class="metric-label">Stoch</div></div>
-                <div class="metric"><div class="metric-value">${((Date.now() - lastRealUpdate)/1000/60).toFixed(0)}min</div><div class="metric-label">Ultimo Update</div></div>
+              const signal = generateSignal();
+const ultimoPrezzo = prices[prices.length-1];
+let tpLivello, slLivello;
+
+if (signal.type === 'BUY') {
+    tpLivello = ultimoPrezzo + 0.0040;  // +40 pips
+    slLivello = ultimoPrezzo - 0.0020;  // -20 pips
+} else if (signal.type === 'SELL') {
+    tpLivello = ultimoPrezzo - 0.0040;
+    slLivello = ultimoPrezzo + 0.0020;
+} else {
+    tpLivello = ultimoPrezzo + 0.0030;
+    slLivello = ultimoPrezzo - 0.0030;
+}
+
+document.getElementById('metrics').innerHTML = `
+    <div class="metric"><div class="metric-value">${ultimoPrezzo.toFixed(5)}</div><div class="metric-label">Prezzo</div></div>
+    <div class="metric"><div class="metric-value">${tpLivello.toFixed(5)}</div><div class="metric-label">🎯 TP</div></div>
+    <div class="metric"><div class="metric-value">${slLivello.toFixed(5)}</div><div class="metric-label">🛑 SL</div></div>
+    <div class="metric"><div class="metric-value">${indicators.rsi?.toFixed(1) || '-'}</div><div class="metric-label">RSI</div></div>
+    <div class="metric"><div class="metric-value">${(indicators.macd || 0).toFixed(6)}</div><div class="metric-label">MACD</div></div>
+    <div class="metric"><div class="metric-value">${((Date.now() - lastRealUpdate)/1000/60).toFixed(0)}m</div><div class="metric-label">Live</div></div>
+`;
+
             `;
             
             document.getElementById('ma-status').textContent = prices[prices.length-1] > indicators.sma20?.[indicators.sma20.length-1] ? '🟢' : '🔴';
